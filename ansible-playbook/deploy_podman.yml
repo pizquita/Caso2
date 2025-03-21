@@ -1,0 +1,102 @@
+---
+- name: Configurar Podman y desplegar aplicación
+  hosts: webserver
+  become: yes
+  vars:
+    acr_name: "myacrlm5zkj"
+    acr_login_server: "myacrlm5zkj.azurecr.io"
+    podman_image: "myacrlm5zkj.azurecr.io/podman-web:casopractico2"
+    resource_group: "my-resource-group"
+    vm_name: "my-linux-vm"
+    acr_user: "myacrlm5zkj" 
+    acr_password: "NIqtg+/HNz0tNqBWe9PiHOgf2ia8aOisayz15pKata+ACRDPWC3z" 
+  tasks:
+    - name: Actualizar repositorios
+      apt:
+        update_cache: yes
+    - name: Instalar Podman
+      apt:
+        name: podman
+        state: present
+    - name: Crear directorio de aplicación
+      file:
+        path: "/home/{{ ansible_user_id }}/podman-web"
+        state: directory
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_id }}"
+        mode: '0755'
+    - name: Copiar Dockerfile
+      copy:
+        src: Dockerfile
+        dest: "/home/{{ ansible_user_id }}/podman-web/Dockerfile"
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_id }}"
+        mode: '0644'
+    - name: Copiar configuración de Nginx
+      copy:
+        src: default.conf
+        dest: "/home/{{ ansible_user_id }}/podman-web/default.conf"
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_id }}"
+        mode: '0644'
+    - name: Copiar página HTML
+      copy:
+        src: index.html
+        dest: "/home/{{ ansible_user_id }}/podman-web/index.html"
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_id }}"
+        mode: '0644'
+    - name: Autenticarse en Azure Container Registry (ACR) con credenciales de Podman
+      containers.podman.podman_login:
+        username: "{{ acr_user }}"
+        password: "{{ acr_password }}"
+        registry: "{{ acr_login_server }}"
+    - name: Eliminar el archivo registries.conf existente
+      file:
+        path: "/etc/containers/registries.conf"
+        state: absent
+      become: yes
+    - name: Configurar Docker Hub en registries.conf
+      copy:
+        dest: "/etc/containers/registries.conf"
+        content: |
+          [[registry]]
+          prefix = "docker.io"
+          location = "docker.io"
+        owner: root
+        group: root
+        mode: '0644'
+        force: true 
+    - name: Reiniciar el servicio Podman
+      systemd:
+        name: podman.socket
+        state: restarted
+      become: yes
+    - name: Construir la imagen de Podman
+      containers.podman.podman_image:
+        name: "{{ podman_image }}"
+        path: "/home/{{ ansible_user_id }}/podman-web"
+    - name: Subir la imagen a ACR
+      containers.podman.podman_image:
+        name: "{{ podman_image }}"
+        push: yes
+    - name: Crear un servicio systemd para Podman
+      copy:
+        dest: "/etc/systemd/system/podman-web.service"
+        content: |
+          [Unit]
+          Description=Servidor Web en Podman
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/bin/podman run --rm --name webserver -p 443:443 {{ podman_image }}
+          Restart=always
+          User={{ ansible_user_id }}
+
+          [Install]
+          WantedBy=multi-user.target
+    - name: Habilitar y arrancar el servicio Podman
+      systemd:
+        name: podman-web
+        enabled: yes
+        state: started

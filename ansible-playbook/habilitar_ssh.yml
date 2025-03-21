@@ -1,0 +1,39 @@
+---
+- name: Habilitar y verificar el acceso SSH
+  hosts: all
+  become: yes
+  tasks:
+    - name: Verificar si el servicio SSH está activo
+      systemd:
+        name: ssh
+        state: started
+        enabled: yes
+      register: ssh_status
+      ignore_errors: yes  # Permite que continúe incluso si el servicio no existe
+
+    - name: Asegurarse de que SSH esté habilitado
+      debug:
+        msg: "El servicio SSH está activo y habilitado."
+      when: ssh_status.changed == true
+
+    - name: Comprobar el estado del servicio SSH
+      command: systemctl status ssh
+      register: ssh_status_output
+      ignore_errors: yes
+
+    - name: Mostrar el estado del servicio SSH
+      debug:
+        msg: "{{ ssh_status_output.stdout }}"
+    
+    - name: Permitir tráfico SSH en el firewall
+      ufw:
+        rule: allow
+        name: OpenSSH
+      when: ansible_facts.os.family == "Debian"
+
+    - name: Verificar si el puerto 22 está abierto en el firewall
+      ufw:
+        state: enabled
+        rule: allow
+        name: '22'
+      when: ansible_facts.os.family == "Debian"
