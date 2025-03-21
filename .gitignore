@@ -1,0 +1,5 @@
+.terraform
+.terraform.lock.hcl
+packages.microsoft.gpg
+terraform.tfstate
+terraform.tfstate.backup
