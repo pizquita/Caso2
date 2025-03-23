@@ -4,13 +4,17 @@ resource "azurerm_resource_group" "rg" {
   location = "West Europe"
 }
 
-# Azure Container Registry (ACR)
+# Azure Container Registry (ACR) con acceso público
 resource "azurerm_container_registry" "acr" {
   name                = "myacr${random_string.suffix.result}"
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
   sku                 = "Basic"
   admin_enabled       = true
+
+  network_rule_set {
+    default_action = "Allow" # Permite acceso desde cualquier ubicación
+  }
 }
 
 resource "random_string" "suffix" {
@@ -19,7 +23,7 @@ resource "random_string" "suffix" {
   upper   = false
 }
 
-# Máquina Virtual Linux
+# Máquina Virtual Linux con soporte HTTPS y autenticación básica
 resource "azurerm_virtual_network" "vnet" {
   name                = "my-vnet"
   resource_group_name = azurerm_resource_group.rg.name
@@ -77,7 +81,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   }
 }
 
-# Cluster AKS (Kubernetes)
+# Cluster AKS
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = "my-aks-cluster"
   location            = azurerm_resource_group.rg.location
@@ -102,18 +106,28 @@ resource "azurerm_public_ip" "vm_public_ip" {
   allocation_method   = "Dynamic"
 }
 
-data "azurerm_client_config" "current" {}
-
+# Permitir acceso de AKS y VM a ACR
 resource "azurerm_role_assignment" "vm_acr_role" {
   scope                = azurerm_container_registry.acr.id
   role_definition_name = "ACRPull"
   principal_id = try(azurerm_linux_virtual_machine.vm.identity[0].principal_id, azurerm_linux_virtual_machine.vm.identity.0.principal_id)
-  depends_on = [azurerm_linux_virtual_machine.vm] # Dependencia explícita
+  depends_on = [azurerm_linux_virtual_machine.vm]
 }
 
 resource "azurerm_role_assignment" "aks_acr_role" {
   scope                = azurerm_container_registry.acr.id
   role_definition_name = "ACRPull"
   principal_id         = try(azurerm_kubernetes_cluster.aks.identity[0].principal_id, azurerm_kubernetes_cluster.aks.identity.0.principal_id)
-  depends_on = [azurerm_kubernetes_cluster.aks] # Dependencia explícita
+  depends_on = [azurerm_kubernetes_cluster.aks]
 }
+
+#  almacenamiento persistente por Redis
+resource "azurerm_redis_cache" "redis" { 
+  name                = "my-redis-cache" 
+  location            = azurerm_resource_group.rg.location 
+  resource_group_name = azurerm_resource_group.rg.name 
+  capacity            = 1  (Estándar para cuenta gratuita)
+  family              = "C"  
+  sku_name            = "Basic"  
+  enable_non_ssl_port = false  
+} 
